@@ -4,7 +4,7 @@
 
 Turn the OpenCode fork into a prepaid, remote-compute coding CLI where users pick from a limited set of open-source coding models, pay with credits, and are billed by active compute time instead of tokens.
 
-The product keeps the OpenCode CLI experience and command surface, but replaces local/provider assumptions with a remote session runtime backed by Cloudflare Workers, Durable Objects, KV/R2, Neon, Stripe, and GPU workers.
+The product keeps the OpenCode CLI experience and command surface, but replaces local/provider assumptions with a remote session runtime backed by Cloudflare Workers, Durable Objects, R2, Neon, Stripe, and GPU workers.
 
 ---
 
@@ -256,28 +256,21 @@ A session may have multiple compute attachments across its lifetime.
    - `SessionDO(session_id)` for per-session state and coordination
    - `SchedulerDO(pool_or_region)` for worker allocation and queueing
 
-4. **KV**
-   - fast lookup cache
-   - last session pointers
-   - latest snapshot pointers
-   - model catalog cache
-   - pricing cache
+4. **R2**
+   - session snapshots and serialized payloads
 
-5. **R2**
-   - large snapshots and serialized payloads
+5. **Neon**
+   - source of truth for sessions, users, wallet, ledger, events, snapshot metadata, workers, pricing rules, and pointers needed for resume
 
-6. **Neon**
-   - source of truth for sessions, users, wallet, ledger, events, snapshots metadata, workers, pricing rules
-
-7. **Stripe**
+6. **Stripe**
    - credits and billing portal
    - wallet top-up via webhook
 
-8. **GPU Provider**
+7. **GPU Provider**
    - initial target: Runpod
    - worker runs model server and agent runtime
 
-9. **Inference Server**
+8. **Inference Server**
    - initial target: vLLM
 
 ---
@@ -308,7 +301,7 @@ A session may have multiple compute attachments across its lifetime.
 - worker sends health heartbeats
 - `SessionDO` tracks state, timers, and transitions
 - important events are flushed to Neon
-- latest snapshot pointer is updated in KV
+- latest snapshot payload is persisted to R2 when needed
 
 ### 4. Idle pause
 
@@ -322,7 +315,7 @@ A session may have multiple compute attachments across its lifetime.
 ### 5. Resume
 
 - user types prompt or runs `/continue`
-- session is rehydrated from Neon + KV/R2
+- session is rehydrated from Neon + R2
 - `SchedulerDO` reattaches or reprovisions compute
 - prompt flow continues
 
@@ -398,25 +391,17 @@ Store permanently in Neon:
 - compact summaries
 - session events
 - snapshot metadata
+- resume pointers
 - workers
 - allocations
 - pricing rules
 
-### KV is a fast cache and pointer layer
-
-Store in KV:
-
-- `user:{id}:last_session`
-- `project:{fingerprint}:last_session`
-- `session:{id}:latest_snapshot_pointer`
-- model catalog cache
-- pricing cache
-
-### R2 stores large snapshot payloads
+### R2 stores snapshot payloads
 
 Use R2 for:
 
 - serialized long-form session payloads
+- latest resumable session snapshot
 - large tool outputs worth preserving
 - future export/archive features
 
@@ -430,6 +415,19 @@ DOs should keep:
 - in-flight transitions
 - locks and temporary event buffers
 
+### Why KV is removed
+
+KV is intentionally not part of the core architecture.
+
+The design should remain simple unless a clear performance or operational advantage appears later.
+For v1, DO + Neon + R2 is sufficient:
+
+- DO for hot state and coordination
+- Neon for canonical durable records
+- R2 for larger snapshot payloads
+
+If needed later, KV can be introduced only as an optimization layer, not as a required dependency.
+
 ---
 
 ## Session Persistence and Resume
@@ -440,10 +438,10 @@ Resume must work even when the old GPU is gone.
 
 1. **Compact summary in Neon**
    - the canonical recovery summary
-2. **Latest snapshot pointer in KV**
-   - fast lookup for recovery path
-3. **Optional large payload in R2**
-   - richer recovery when needed
+2. **Resume pointer in Neon**
+   - points to the latest snapshot metadata
+3. **Snapshot payload in R2**
+   - richer recovery payload when needed
 4. **Live state in SessionDO**
    - current hot state only
 
@@ -453,8 +451,8 @@ On resume:
 
 - resolve session by explicit id, project fingerprint, or user's last session
 - recover metadata and summary from Neon
-- recover latest snapshot pointer from KV
-- load large snapshot payload from R2 if needed
+- recover latest snapshot reference from Neon
+- load snapshot payload from R2 if needed
 - recreate `SessionDO` if absent
 - allocate new compute if needed
 - inject compacted context into new runtime
