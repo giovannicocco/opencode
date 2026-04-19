@@ -2,9 +2,9 @@
 
 ## Objective
 
-Turn the OpenCode fork into a prepaid, remote-compute coding CLI where users pick from a limited set of open-source coding models, pay with credits, and are billed by active compute time instead of tokens.
+Turn the OpenCode fork into a prepaid, compute-time-based coding CLI where users pick from a limited set of open-source coding models, pay with credits, and are billed by active compute time instead of tokens.
 
-The product keeps the OpenCode CLI experience and command surface, but replaces local/provider assumptions with a remote session runtime backed by Cloudflare Workers, Durable Objects, R2, Neon, Stripe, and GPU workers.
+The product keeps the OpenCode CLI experience and command surface, but replaces local/provider assumptions with a service-backed session runtime built on Cloudflare Workers, Durable Objects, R2, Neon, Stripe, and GPU workers.
 
 ---
 
@@ -243,7 +243,8 @@ A session may have multiple compute attachments across its lifetime.
 
 1. **OpenCode fork**
    - existing CLI shell and command UX
-   - modified to support remote session runtime
+   - primary CLI/runtime package remains in `packages/opencode`
+   - modified to support service-backed session runtime
 
 2. **Cloudflare Workers**
    - public API
@@ -533,12 +534,175 @@ The backend chooses the worker and GPU.
 
 ---
 
+## Monorepo Strategy
+
+The repository already uses workspaces and Turbo, so the implementation should extend the existing monorepo instead of creating a second monorepo structure.
+
+### Recommended package structure
+
+```text
+packages/
+  opencode/
+  service/
+  shared/
+  sdk/
+    js/
+```
+
+### Package responsibilities
+
+#### `packages/opencode`
+
+This remains the primary CLI/runtime package.
+It should own:
+
+- CLI shell and command UX
+- attach-on-first-prompt behavior
+- `/model`, `/status`, `/continue`, `/fork`, `/exit`
+- billing portal launch behavior
+- session and cost display
+
+It should consume the service client instead of embedding backend orchestration logic directly.
+
+#### `packages/service`
+
+This should contain the service runtime:
+
+- Hono API
+- Durable Objects
+- session lifecycle orchestration
+- scheduler
+- billing integration
+- Neon integration
+- R2 integration
+- GPU provider integration
+
+Suggested internal structure:
+
+```text
+packages/service/
+  src/
+    index.ts
+    routes/
+    durable/
+      session-do.ts
+      scheduler-do.ts
+    lib/
+      neon.ts
+      r2.ts
+      stripe.ts
+      runpod.ts
+      auth.ts
+      billing.ts
+      snapshots.ts
+      models.ts
+```
+
+#### `packages/shared`
+
+This should contain only shared contracts and schemas:
+
+- session states
+- billing types
+- model catalog types
+- API contracts
+- zod schemas
+- reusable enums
+
+Suggested internal structure:
+
+```text
+packages/shared/
+  src/
+    session.ts
+    billing.ts
+    models.ts
+    api.ts
+    enums.ts
+    schemas/
+```
+
+`packages/shared` must remain disciplined and should not become a dumping ground for unrelated logic.
+
+#### `packages/sdk/js`
+
+The existing SDK package should be extended instead of creating a parallel client package.
+
+Suggested namespace inside the SDK:
+
+```text
+packages/sdk/js/src/service/
+  client.ts
+  session.ts
+  billing.ts
+  models.ts
+  types.ts
+```
+
+This service namespace should expose the client APIs used by `packages/opencode`, such as:
+
+- `startSession`
+- `resumeSession`
+- `switchModel`
+- `getSessionStatus`
+- `getModels`
+- `openBilling` or equivalent flow
+
+### `infra/` usage
+
+`infra/` should remain a support/configuration layer, not the main runtime package.
+
+Use it for:
+
+- Worker deployment config
+- SQL migrations
+- environment examples
+- deployment scripts
+
+Suggested structure:
+
+```text
+infra/
+  workers/
+    wrangler.jsonc
+  sql/
+    0001_init.sql
+    0002_wallets.sql
+    0003_sessions.sql
+    0004_snapshots.sql
+  env/
+    example.dev.env
+```
+
+Do not place the main Worker application code in `infra/`.
+That code belongs in `packages/service`.
+
+### `specs/` usage
+
+`specs/` should be used for architecture and product design docs.
+
+Suggested structure:
+
+```text
+specs/
+  service-runtime/
+    implementation.md
+    cli-ux.md
+    session-lifecycle.md
+    billing-flow.md
+    scheduler.md
+```
+
+Moving `implementation.md` there can happen later once the repo structure is ready.
+
+---
+
 ## Proposed Initial Roadmap
 
-### Phase 1 — Remote session foundation
+### Phase 1 — Service-backed session foundation
 
 - fork OpenCode and preserve CLI UX
-- add remote auth and remote session bootstrap
+- add service auth and service-backed session bootstrap
 - show last model, balance, and no-compute state on startup
 - attach compute only on first prompt
 
@@ -594,33 +758,6 @@ This schema has already been defined conceptually and should be added in migrati
 
 ---
 
-## Folder Strategy
-
-Suggested logical separation inside the fork:
-
-```text
-/internal
-  /core
-  /commands
-  /session
-  /ui
-  /providers
-
-/internal/autocode
-  /api
-  /auth
-  /billing
-  /compute
-  /resume
-  /models
-  /config
-```
-
-The OpenCode parts remain responsible for CLI ergonomics.
-The new `autocode` namespace holds remote runtime, billing, resume, and scheduler integration.
-
----
-
 ## Non-Goals for v1
 
 Do not optimize early for:
@@ -635,7 +772,7 @@ Do not optimize early for:
 v1 should prove:
 
 - curated model selection
-- remote compute attach on demand
+- compute attach on demand
 - durable session resume
 - prepaid wallet flow
 - pricing by active compute time
@@ -647,7 +784,7 @@ v1 should prove:
 This implementation should not be treated as a generic provider plugin.
 It is a product fork of OpenCode with a new execution model:
 
-- remote session state
+- service-backed session state
 - detachable compute runtime
 - prepaid wallet billing
 - resumable coding sessions independent of GPU lifecycle
