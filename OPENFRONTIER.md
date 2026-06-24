@@ -7,7 +7,8 @@ OpenFrontier is the only model provider that should be exposed by this fork.
 ```text
 OpenCode Fork / CLI
   -> OpenFrontier Publisher Backend
-  -> Auth + Quota + Usage Ledger + Rate Limit
+  -> Durable Object UserGate
+  -> D1 Auth + Quota + Usage Ledger
   -> NotPixel SDK/API
   -> OpenRouter / Provider LLM
   -> Response + Sponsored/Organic Recommendation
@@ -89,6 +90,83 @@ fast
 ```
 
 The Worker backend maps those aliases internally to the NotPixel/OpenRouter provider model.
+
+## Durable Object gate
+
+The backend package lives in:
+
+```text
+packages/openfrontier-api
+```
+
+It defines a Durable Object class:
+
+```text
+UserGate
+```
+
+`UserGate` is keyed by `userId` and runs before D1 credit reservation:
+
+```text
+POST /v1/chat/completions
+  -> authMiddleware
+  -> UserGate.acquire(userId)
+  -> reserveRun() in D1
+  -> callNotPixel()
+  -> completeRun() or refundRun() in D1
+  -> UserGate.release(userId)
+```
+
+The Durable Object is responsible for:
+
+- serializing concurrent calls per user
+- blocking double-spend races before D1 reservation
+- enforcing a per-minute request window
+- returning 409 when another request is already running for the same user
+- returning 429 when the user hits the minute limit
+
+D1 remains the source of truth for:
+
+- users
+- credit balances
+- usage ledger
+- credit ledger
+- refunds
+
+## Durable Object binding
+
+`packages/openfrontier-api/wrangler.toml` includes:
+
+```toml
+[[durable_objects.bindings]]
+name = "USER_GATE"
+class_name = "UserGate"
+
+[[migrations]]
+tag = "v1_user_gate"
+new_sqlite_classes = ["UserGate"]
+```
+
+## Local/dev commands
+
+```bash
+bun install
+bun run --cwd packages/openfrontier-api typecheck
+bun run --cwd packages/openfrontier-api dev
+```
+
+D1 migrations:
+
+```bash
+wrangler d1 migrations apply openfrontier --local
+wrangler d1 migrations apply openfrontier --remote
+```
+
+Deploy:
+
+```bash
+bun run --cwd packages/openfrontier-api wrangler deploy
+```
 
 ## Model catalog
 
