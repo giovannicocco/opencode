@@ -1,0 +1,27 @@
+name = "openfrontier"
+main = "src/index.ts"
+compatibility_date = "2026-06-23"
+
+[vars]
+PUBLISHER_ID = "pub_openfrontier"
+DEFAULT_POWER_MODEL = "openrouter/z-ai/glm-5.2"
+DEFAULT_FAST_MODEL = "openrouter/qwen/qwen3-coder"
+NOTPIXEL_BASE_URL = "https://api.notpixel.ai"
+NOTPIXEL_OFFER_PATH = "/v1/offer"
+FREE_MONTHLY_POWER_RUNS = "10"
+FREE_MONTHLY_FAST_RUNS = "40"
+RATE_LIMIT_PER_MINUTE = "20"
+USER_LOCK_TIMEOUT_MS = "120000"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "openfrontier"
+database_id = "6f07d46b-9af5-44ae-a2d3-85ed7998753d"
+
+[[durable_objects.bindings]]
+name = "USER_GATE"
+class_name = "UserGate"
+
+[[migrations]]
+tag = "v1_user_gate"
+new_sqlite_classes = ["UserGate"]
