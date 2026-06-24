@@ -13,6 +13,12 @@ export type Env = {
   FREE_MONTHLY_FAST_RUNS?: string
   RATE_LIMIT_PER_MINUTE?: string
   USER_LOCK_TIMEOUT_MS?: string
+  BILLING_PROVIDER_SECRET?: string
+  BILLING_WEBHOOK_SECRET?: string
+  BILLING_PRO_PRICE_ID?: string
+  BILLING_SUCCESS_URL?: string
+  BILLING_CANCEL_URL?: string
+  BILLING_PORTAL_RETURN_URL?: string
 }
 
 export type AuthedUser = {
@@ -36,6 +42,16 @@ export type Reservation = {
   modelAlias: string
   providerModel: string
   estimatedCostUsd: number
+}
+
+export type Plan = {
+  id: "free" | "pro" | string
+  name: string
+  monthly_power_runs: number
+  monthly_fast_runs: number
+  sponsor_enabled: number
+  monthly_price_cents: number
+  billing_price_id: string | null
 }
 
 export type GateAcquireResult =
