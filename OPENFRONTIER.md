@@ -27,6 +27,69 @@ The provider backend owns the real mapping:
 
 The CLI must not call OpenRouter directly. The CLI sends requests to the OpenFrontier backend, and the backend calls NotPixel, which then calls OpenRouter/provider infrastructure.
 
+## Backend API connection
+
+The static model catalog is wired to the OpenFrontier Publisher Backend.
+
+Default API base URL:
+
+```bash
+https://api.openfrontier.ai/v1
+```
+
+To point a build at a different Worker URL, build with:
+
+```bash
+OPENFRONTIER_BASE_URL="https://<your-worker-or-domain>/v1" bun run --cwd packages/opencode build --single --skip-embed-web-ui
+```
+
+The CLI user token is read from:
+
+```bash
+OPENFRONTIER_TOKEN="..."
+```
+
+This token belongs to the OpenFrontier Publisher Backend. It is sent to the backend as the provider bearer token and is used there for:
+
+- auth
+- quota checks
+- Power/Fast Run reservation
+- usage ledger
+- rate limit
+- refund on upstream failure
+
+The CLI should never receive or store:
+
+- OpenRouter provider keys
+- NotPixel server keys
+- publisher ledger credentials
+
+## OpenAI-compatible endpoint contract
+
+The OpenFrontier backend must expose an OpenAI-compatible API:
+
+```text
+GET  /v1/models
+POST /v1/chat/completions
+GET  /v1/me/usage
+```
+
+The important path for the CLI is:
+
+```text
+POST /v1/chat/completions
+Authorization: Bearer <OPENFRONTIER_TOKEN>
+```
+
+The request model should be one of:
+
+```text
+power
+fast
+```
+
+The Worker backend maps those aliases internally to the NotPixel/OpenRouter provider model.
+
 ## Model catalog
 
 `packages/opencode/script/generate.ts` embeds a static OpenFrontier model catalog instead of fetching `https://models.dev/api.json` by default.
