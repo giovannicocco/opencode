@@ -1,8 +1,10 @@
+const openfrontierBaseUrl = process.env.OPENFRONTIER_BASE_URL || "https://api.openfrontier.ai/v1"
+
 const openfrontierCatalog = {
   openfrontier: {
     id: "openfrontier",
     name: "OpenFrontier",
-    api: "https://api.openfrontier.ai/v1",
+    api: openfrontierBaseUrl,
     env: ["OPENFRONTIER_TOKEN"],
     npm: "@ai-sdk/openai-compatible",
     models: {
@@ -62,4 +64,4 @@ export const modelsData = process.env.OPENFRONTIER_MODELS_JSON
   ? await Bun.file(process.env.OPENFRONTIER_MODELS_JSON).text()
   : JSON.stringify(openfrontierCatalog)
 
-console.log("Loaded OpenFrontier model snapshot")
+console.log(`Loaded OpenFrontier model snapshot from ${openfrontierBaseUrl}`)
