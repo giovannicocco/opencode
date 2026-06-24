@@ -5,12 +5,13 @@ export async function callNotPixel(params: {
   env: Env
   body: any
   userId: string
-  userPlan: string
+  userPlan?: string
   reservation: Reservation
   placement?: string
 }) {
-  const { env, body, userId, userPlan, reservation } = params
+  const { env, body, userId, reservation } = params
   const offerUrl = resolveNotPixelOfferUrl(env)
+  const userPlan = params.userPlan || (await getUserPlan(env, userId))
   const sponsorEnabled = userPlan !== "pro"
 
   const payload = {
@@ -49,4 +50,12 @@ export async function callNotPixel(params: {
     },
     body: JSON.stringify(payload),
   })
+}
+
+async function getUserPlan(env: Env, userId: string) {
+  const user = await env.DB.prepare(
+    `SELECT plan FROM users WHERE id = ?`,
+  ).bind(userId).first<{ plan: string }>()
+
+  return user?.plan || "free"
 }
