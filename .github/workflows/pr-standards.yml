@@ -1,10 +1,119 @@
-name: pr-standards-disabled
+name: pr-standards
 
 on:
-  workflow_dispatch:
+  pull_request_target:
+    types: [opened, edited, synchronize, reopened]
 
 jobs:
-  noop:
+  check-compliance:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
     steps:
-      - run: echo "Disabled for OpenFrontier fork"
+      - name: Check PR title and template
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            const body = pr.body || '';
+            const title = pr.title || '';
+            const issues = [];
+
+            const titlePattern = /^(feat|fix|docs|chore|refactor|test)\s*(\([a-zA-Z0-9-]+\))?\s*:/;
+            if (!titlePattern.test(title)) {
+              issues.push('PR title must use conventional commit format, for example `feat(openfrontier): add publisher backend`.');
+            }
+
+            const requiredSections = [
+              '### Issue for this PR',
+              '### Type of change',
+              '### What does this PR do?',
+              '### How did you verify your code works?',
+              '### Checklist',
+            ];
+
+            for (const section of requiredSections) {
+              if (!body.includes(section)) issues.push(`PR description is missing required section: ${section}`);
+            }
+
+            const typeMatch = body.match(/### Type of change\s*\n([\s\S]*?)(?=###|$)/);
+            if (typeMatch && !/- \[x\]/i.test(typeMatch[1])) {
+              issues.push('At least one Type of change checkbox must be checked.');
+            }
+
+            const verifyMatch = body.match(/### How did you verify your code works\?\s*\n([\s\S]*?)(?=###|$)/);
+            if (verifyMatch && !verifyMatch[1].trim()) {
+              issues.push('The verification section must explain how the change was checked.');
+            }
+
+            const checklistMatch = body.match(/### Checklist\s*\n([\s\S]*?)(?=###|$)/);
+            if (checklistMatch) {
+              const checked = (checklistMatch[1].match(/- \[x\]/gi) || []).length;
+              if (checked < 2) issues.push('All checklist items must be checked.');
+            }
+
+            async function listComments() {
+              const { data } = await github.rest.issues.listComments({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: pr.number,
+              });
+              return data;
+            }
+
+            async function addLabel(label) {
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: pr.number,
+                labels: [label],
+              });
+            }
+
+            async function removeLabel(label) {
+              try {
+                await github.rest.issues.removeLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: pr.number,
+                  name: label,
+                });
+              } catch (e) {}
+            }
+
+            const marker = '<!-- issue-compliance -->';
+            const comments = await listComments();
+            const existing = comments.find((comment) => comment.body.includes(marker));
+
+            if (issues.length > 0) {
+              await addLabel('needs:compliance');
+              const commentBody = `${marker}\nThis PR does not fully meet the repository PR standards.\n\n**What needs to be fixed:**\n${issues.map((issue) => `- ${issue}`).join('\n')}`;
+              if (existing) {
+                await github.rest.issues.updateComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  comment_id: existing.id,
+                  body: commentBody,
+                });
+              } else {
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: pr.number,
+                  body: commentBody,
+                });
+              }
+              return;
+            }
+
+            await removeLabel('needs:compliance');
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body: `${marker}\nPR compliance checks now pass.`,
+              });
+            }
