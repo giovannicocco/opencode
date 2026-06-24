@@ -28,6 +28,43 @@ The provider backend owns the real mapping:
 
 The CLI must not call OpenRouter directly. The CLI sends requests to the OpenFrontier backend, and the backend calls NotPixel, which then calls OpenRouter/provider infrastructure.
 
+## Plans
+
+OpenFrontier starts with two plans:
+
+```text
+Free
+- 10 Power Runs/month
+- 40 Fast Runs/month
+- sponsored recommendations enabled
+
+Pro
+- 200 Power Runs/month
+- 1000 Fast Runs/month
+- sponsored recommendations disabled
+```
+
+Plan definitions live in D1 in the `plans` table.
+
+## Pro sponsor policy
+
+Pro users must not receive sponsored recommendations.
+
+`packages/openfrontier-api/src/notpixel.ts` resolves the user's plan from D1 before calling NotPixel. It sends:
+
+```json
+{
+  "sponsor": {
+    "enabled": false,
+    "reason": "pro_plan_no_sponsor"
+  }
+}
+```
+
+when `user.plan = "pro"`.
+
+Free users keep sponsored recommendations enabled.
+
 ## Backend API connection
 
 The static model catalog is wired to the OpenFrontier Publisher Backend.
@@ -91,6 +128,32 @@ fast
 
 The Worker backend maps those aliases internally to the NotPixel/OpenRouter provider model.
 
+## Billing endpoints
+
+The backend package includes billing helpers for subscription checkout and customer portal:
+
+```text
+GET  /v1/billing/status
+POST /v1/billing/checkout
+POST /v1/billing/portal
+```
+
+Billing configuration should be provided as Worker secrets/vars:
+
+```text
+BILLING_PROVIDER_SECRET
+BILLING_WEBHOOK_SECRET
+BILLING_PRO_PRICE_ID
+BILLING_SUCCESS_URL
+BILLING_CANCEL_URL
+BILLING_PORTAL_RETURN_URL
+```
+
+`BILLING_PROVIDER_SECRET` is the server-side billing provider key.
+`BILLING_PRO_PRICE_ID` is the recurring Pro price id.
+
+Webhook verification and processing functions exist in `src/billing.ts`. The public event route still needs to be registered manually because the connector blocked the route write.
+
 ## Durable Object gate
 
 The backend package lives in:
@@ -132,6 +195,9 @@ D1 remains the source of truth for:
 - usage ledger
 - credit ledger
 - refunds
+- plans
+- subscriptions
+- billing events
 
 ## Durable Object binding
 
@@ -162,10 +228,10 @@ wrangler d1 migrations apply openfrontier --local
 wrangler d1 migrations apply openfrontier --remote
 ```
 
-Deploy:
+Deploy with billing entrypoint:
 
 ```bash
-bun run --cwd packages/openfrontier-api wrangler deploy
+wrangler deploy --config packages/openfrontier-api/wrangler.billing.toml
 ```
 
 ## Model catalog
